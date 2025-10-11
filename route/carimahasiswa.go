@@ -52,10 +52,6 @@ type APIResponse struct {
 	Data         []MahasiswaResult  `json:"data"`
 	DetailKampus []UniversityDetail `json:"detail_kampus"`
 }
-
-// CariMahasiswa handles GET /carimahasiswa?name=...
-// It visits the PDDIKTI search page in a headless browser, waits for JS-rendered content,
-// and extracts the Mahasiswa data as JSON. Now also includes university details.
 func CariMahasiswa(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -74,8 +70,6 @@ func CariMahasiswa(w http.ResponseWriter, r *http.Request) {
 	}
 
 	target := "https://pddikti.kemdiktisaintek.go.id/search/" + url.QueryEscape(name)
-
-	// Create allocator with options to see browser (remove for production)
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", true),
 		chromedp.Flag("disable-gpu", true),
@@ -90,7 +84,6 @@ func CariMahasiswa(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := chromedp.NewContext(allocCtx)
 	defer cancel()
 
-	// Increase timeout for better reliability
 	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -99,22 +92,19 @@ func CariMahasiswa(w http.ResponseWriter, r *http.Request) {
 		chromedp.EmulateViewport(1920, 1080),
 		chromedp.Navigate(target),
 
-		// Wait for the root element
+
 		chromedp.WaitReady(`#root`, chromedp.ByQuery),
 
-		// Wait for search results to load - look for either results or "no results" message
+	
 		chromedp.Sleep(2*time.Second),
 
-		// Try to wait for specific elements that indicate content is loaded
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			// Wait for either results table or no results message
+
 			return chromedp.WaitVisible(`table, .no-results, .empty-state, [class*="result"], [class*="table"]`, chromedp.ByQueryAll).Do(ctx)
 		}),
 
-		// Additional wait to ensure all content is rendered
 		chromedp.Sleep(3*time.Second),
 
-		// Get the full HTML
 		chromedp.OuterHTML("html", &html, chromedp.ByQuery),
 	)
 
@@ -130,18 +120,16 @@ func CariMahasiswa(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Debug: log part of the HTML to see what we got
+
 	fmt.Printf("HTML length: %d\n", len(html))
 	if len(html) > 1000 {
 		fmt.Printf("HTML sample: %s...\n", html[:1000])
 	}
 
-	// Extract mahasiswa data from the HTML
 	mahasiswaData := extractMahasiswaData(html)
 
 	var universityDetails []UniversityDetail
 
-	// If we have mahasiswa data, get university details for the first result
 	if len(mahasiswaData) > 0 {
 		firstUniversity := mahasiswaData[0].University
 		fmt.Printf("Searching university details for: %s\n", firstUniversity)
@@ -167,9 +155,7 @@ func CariMahasiswa(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// getUniversityDetails searches for university and fetches its detailed information
 func getUniversityDetails(universityName string) *UniversityDetail {
-	// Step 1: Search for the university
 	searchURL := "https://pddikti.kemdiktisaintek.go.id/search/pt/" + url.QueryEscape(universityName)
 
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
@@ -203,7 +189,7 @@ func getUniversityDetails(universityName string) *UniversityDetail {
 		return nil
 	}
 
-	// Step 2: Extract the university token from search results
+
 	token := extractUniversityToken(searchHTML)
 	if token == "" {
 		fmt.Println("Failed to extract university token")
@@ -212,13 +198,12 @@ func getUniversityDetails(universityName string) *UniversityDetail {
 
 	fmt.Printf("Found university token: %s\n", token)
 
-	// Step 3: Fetch detailed university information from API
+
 	return fetchUniversityDetailsFromAPI(token)
 }
 
-// extractUniversityToken extracts the university token from search results HTML
+
 func extractUniversityToken(html string) string {
-	// Look for links in the format /detail-pt/TOKEN
 	re := regexp.MustCompile(`/detail-pt/([A-Za-z0-9_-]+={0,2})`)
 	matches := re.FindStringSubmatch(html)
 
@@ -229,7 +214,7 @@ func extractUniversityToken(html string) string {
 	return ""
 }
 
-// fetchUniversityDetailsFromAPI fetches detailed university information from the API
+
 func fetchUniversityDetailsFromAPI(token string) *UniversityDetail {
 	apiURL := fmt.Sprintf("https://api-pddikti.kemdiktisaintek.go.id/pt/detail/%s", token)
 
@@ -243,7 +228,7 @@ func fetchUniversityDetailsFromAPI(token string) *UniversityDetail {
 		return nil
 	}
 
-	// Set required headers
+
 	req.Header.Set("Accept", "application/json, text/plain, */*")
 	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9,id;q=0.8")
@@ -285,10 +270,10 @@ func fetchUniversityDetailsFromAPI(token string) *UniversityDetail {
 func extractMahasiswaData(html string) []MahasiswaResult {
 	var results []MahasiswaResult
 
-	// Convert to lowercase for case-insensitive searching
+	
 	lower := strings.ToLower(html)
 
-	// Look for various patterns that might indicate a Mahasiswa section
+
 	patterns := []string{
 		">mahasiswa<",
 		"mahasiswa",
@@ -310,14 +295,13 @@ func extractMahasiswaData(html string) []MahasiswaResult {
 		return results
 	}
 
-	// Look for table after the heading
+	
 	searchArea := html[headingIdx:]
 	searchAreaLower := strings.ToLower(searchArea)
 
 	tableStart := strings.Index(searchAreaLower, "<table")
 	if tableStart == -1 {
 		fmt.Println("No table found after mahasiswa heading")
-		// Try to find div-based results instead
 		return extractFromDivResults(searchArea)
 	}
 
@@ -327,10 +311,10 @@ func extractMahasiswaData(html string) []MahasiswaResult {
 		return results
 	}
 
-	tableHTML := searchArea[tableStart : tableStart+tableEnd+8] // +8 for "</table>"
+	tableHTML := searchArea[tableStart : tableStart+tableEnd+8] 
 	fmt.Printf("Found table HTML length: %d\n", len(tableHTML))
 
-	// Extract data from table rows
+
 	return extractFromTable(tableHTML)
 }
 
@@ -394,7 +378,7 @@ func extractFromDivResults(html string) []MahasiswaResult {
 		}
 	}
 
-	// Don't forget the last result
+
 	if currentResult.Name != "" && (currentResult.NIM != "" || currentResult.University != "") {
 		results = append(results, currentResult)
 	}
@@ -403,11 +387,11 @@ func extractFromDivResults(html string) []MahasiswaResult {
 }
 
 func cleanHTML(s string) string {
-	// Remove HTML tags
+
 	re := regexp.MustCompile(`<[^>]*>`)
 	cleaned := re.ReplaceAllString(s, "")
 
-	// Decode common HTML entities
+
 	cleaned = strings.ReplaceAll(cleaned, "&amp;", "&")
 	cleaned = strings.ReplaceAll(cleaned, "&lt;", "<")
 	cleaned = strings.ReplaceAll(cleaned, "&gt;", ">")
@@ -419,7 +403,7 @@ func cleanHTML(s string) string {
 }
 
 func extractValue(line string) string {
-	// Extract value after colon
+
 	if idx := strings.Index(line, ":"); idx != -1 && idx < len(line)-1 {
 		return strings.TrimSpace(line[idx+1:])
 	}
